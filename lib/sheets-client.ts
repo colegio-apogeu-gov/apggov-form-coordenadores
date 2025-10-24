@@ -1,22 +1,19 @@
 // lib/sheets-client.ts
-// Pode ser importado em 'use client'
-import { FeedbackFormData } from '@/types';
+export type SheetsAppendPayload = {
+  spreadsheetId: string;      // ex.: process.env.GOOGLE_SHEETS_SPREADSHEET_ID
+  sheetName: string;          // 'Respostas'
+  rows: Record<string, any>[]; // 1 linha por competência
+};
 
-interface SheetData extends FeedbackFormData {
-  user_id: string;
-  user_name: string;
-}
-
-export async function sendToGoogleSheets(data: SheetData): Promise<void> {
+export async function sendToGoogleSheets(payload: SheetsAppendPayload): Promise<void> {
   const res = await fetch('/api/sheets/append', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
-  console.log(data)
+
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Sheets append failed: ${res.status} ${text}`);
   }
 }
-

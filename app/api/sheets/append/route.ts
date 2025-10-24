@@ -1,10 +1,13 @@
 // app/api/avaliacao-coordenadores/route.ts
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { RATING_DESCRIPTIONS } from '@/types';
 import { sendToGoogleSheets } from '@/lib/sheets-client';
 
-// Espera receber: { base: AvaliacaoBase, competencias: Record<CompetenciaKey, { avaliacao: 1|2|3|4, acoes_desenvolvimento?: string }> }
+// Espera: { base: AvaliacaoBase, competencias: Record<CompetenciaKey, { avaliacao: 1|2|3|4, acoes_desenvolvimento?: string }> }
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -16,7 +19,7 @@ export async function POST(req: Request) {
       return new NextResponse('Payload inválido.', { status: 400 });
     }
 
-    // Monta linhas para Supabase (uma por competência)
+    // === Monta linhas para Supabase (uma por competência) — SOMENTE colunas existentes no schema ===
     const rows = Object.entries(competencias).map(([key, resp]: any) => {
       const block = (RATING_DESCRIPTIONS as any)[key];
       return {
@@ -28,27 +31,18 @@ export async function POST(req: Request) {
         nivel_4: block?.options?.[3]?.description ?? null,
         avaliacao: resp?.avaliacao ?? null,
         acoes_desenvolvimento: resp?.acoes_desenvolvimento ?? null,
-        // campos de contexto úteis para análises futuras (opcional)
-        contexto_unidade: base.unidade ?? null,
-        contexto_regional: base.regional ?? null,
-        contexto_cadastro: base.cadastro ?? null,
-        contexto_nome: base.nome ?? null,
-        contexto_escola: base.escola ?? null,
       };
     });
 
-    // Insere no Supabase — tabela competencias_avaliacao
+    // === Insere no Supabase — tabela competencias_avaliacao ===
     const { error: insertError } = await supabase.from('competencias_avaliacao').insert(rows);
     if (insertError) {
       console.error(insertError);
       return new NextResponse(`Erro ao inserir no Supabase: ${insertError.message}`, { status: 500 });
     }
 
-    // Enviar para Google Sheets (form-apggov-coordenadores / aba 'Respostas')
-    // Estrutura: uma linha por competência (repete identificação)
+    // === Enviar para Google Sheets (form-apggov-coordenadores / aba 'Respostas') — 1 linha por competência ===
     const sheetRows = rows.map((r) => ({
-      planilha: 'form-apggov-coordenadores',
-      aba: 'Respostas',
       data_envio: new Date().toISOString(),
       unidade: base.unidade ?? '',
       regional: base.regional ?? '',
@@ -76,16 +70,14 @@ export async function POST(req: Request) {
     }));
 
     try {
-      // Observação: assumindo que o helper aceita { spreadsheet, sheet, rows } OU um objeto por linha.
-      // Caso seu helper aceite apenas um objeto, você pode enviar individualmente em um loop.
       await sendToGoogleSheets({
-        spreadsheet: 'form-apggov-coordenadores',
-        sheet: 'Respostas',
+        spreadsheetId: 'form-apggov-coordenadores',
+        sheetName: 'Respostas',
         rows: sheetRows,
       });
     } catch (sheetsErr: any) {
       console.error('Erro ao enviar para Google Sheets:', sheetsErr);
-      // Não falha a requisição por erro de Sheets (mas loga).
+      // Não falha a requisição por erro de Sheets (apenas loga).
     }
 
     return NextResponse.json({ ok: true });
